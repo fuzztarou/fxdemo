@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -15,10 +16,19 @@ func main() {
 	fx.New(
 		fx.Provide(
 			NewHTTPServer, // アプリケーションにサーバーを提供している
-			NewServeMux,   // Routerを設定
+			fx.Annotate(
+				NewServeMux,
+				fx.ParamTags(`name:"echo"`, `name:"hello"`),
+			),
 			fx.Annotate(
 				NewEchoHandler,
 				fx.As(new(Route)),
+				fx.ResultTags(`name:"echo"`),
+			),
+			fx.Annotate(
+				NewHelloHandler,
+				fx.As(new(Route)),
+				fx.ResultTags(`name:"hello"`),
 			),
 			zap.NewExample, // ロガー
 		),
@@ -64,10 +74,23 @@ type EchoHandler struct {
 	log *zap.Logger
 }
 
+// HelloHandler is an HTTP handler that
+// prints a greeting to the user.
+// 新たに作成したハンドラ Helloと返す
+type HelloHandler struct {
+	log *zap.Logger
+}
+
 // NewEchoHandler builds a new EchoHandler.
 // Echoハンドラのインスタンスを生成する関数
 func NewEchoHandler(log *zap.Logger) *EchoHandler {
 	return &EchoHandler{log: log}
+}
+
+// NewHelloHandler builds a new HelloHandler.
+// HelloHandlerインスタンスを生成する
+func NewHelloHandler(log *zap.Logger) *HelloHandler {
+	return &HelloHandler{log: log}
 }
 
 // ServeHTTP handles an HTTP request to the /echo endpoint.
@@ -78,16 +101,38 @@ func (h *EchoHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// EchoHandlerにメソッドを追加
+// HelloHandlerに付与するメソッド  リクエストボディにHelloを付けて返す
+func (h *HelloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		h.log.Error("Failed to read request", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if _, err := fmt.Fprintf(w, "Hello, %s\n", body); err != nil {
+		h.log.Error("Failed to write response", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+// EchoHandlerにPattern()メソッドを追加
 func (*EchoHandler) Pattern() string {
 	return "/echo"
+}
+
+// HelloHandlerにPattern()メソッドを追加
+func (*HelloHandler) Pattern() string {
+	return "/hello"
 }
 
 // NewServeMux builds a ServeMux that will route requests
 // to the given EchoHandler.
 // ハンドラ
-func NewServeMux(route Route) *http.ServeMux {
+func NewServeMux(route1, route2 Route) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.Handle(route.Pattern(), route)
+	mux.Handle(route1.Pattern(), route1)
+	mux.Handle(route2.Pattern(), route2)
 	return mux
 }
