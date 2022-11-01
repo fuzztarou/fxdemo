@@ -14,9 +14,12 @@ import (
 func main() {
 	fx.New(
 		fx.Provide(
-			NewHTTPServer,  // アプリケーションにサーバーを提供している
-			NewServeMux,    // Routerを設定
-			NewEchoHandler, // ハンドラを設定
+			NewHTTPServer, // アプリケーションにサーバーを提供している
+			NewServeMux,   // Routerを設定
+			fx.Annotate(
+				NewEchoHandler,
+				fx.As(new(Route)),
+			),
 			zap.NewExample, // ロガー
 		),
 		fx.Invoke(func(*http.Server) {}), // インスタンス化する
@@ -47,6 +50,14 @@ func NewHTTPServer(lc fx.Lifecycle, mux *http.ServeMux, log *zap.Logger) *http.S
 	return srv
 }
 
+// Route is an http.Handler that knows the mux pattern
+// under which it will be registered.
+// インターフェースを定義
+type Route interface {
+	http.Handler
+	Pattern() string // Pattern reports the path at which this is registered.
+}
+
 // EchoHandler is an http.Handler that copies its request body
 // back to the response.
 type EchoHandler struct {
@@ -67,11 +78,16 @@ func (h *EchoHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// EchoHandlerにメソッドを追加
+func (*EchoHandler) Pattern() string {
+	return "/echo"
+}
+
 // NewServeMux builds a ServeMux that will route requests
 // to the given EchoHandler.
 // ハンドラ
-func NewServeMux(echo *EchoHandler) *http.ServeMux {
+func NewServeMux(route Route) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.Handle("/echo", echo)
+	mux.Handle(route.Pattern(), route)
 	return mux
 }
